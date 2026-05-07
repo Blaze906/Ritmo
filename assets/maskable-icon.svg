@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ritmo">
+  <rect width="512" height="512" fill="#315f52"/>
+  <rect x="108" y="92" width="296" height="328" rx="58" fill="#f7f5ef"/>
+  <path d="M160 176h192M160 242h112M160 308h145" fill="none" stroke="#315f52" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="348" cy="312" r="48" fill="#d6905b"/>
+  <path d="m326 313 16 16 32-42" fill="none" stroke="#f7f5ef" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

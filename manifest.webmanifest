@@ -1,0 +1,40 @@
+{
+  "name": "Ritmo - Pianificazione personale",
+  "short_name": "Ritmo",
+  "description": "Calendario, attivita, promemoria intelligenti e focus mode in un'app offline-first.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f5ef",
+  "theme_color": "#315f52",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/maskable-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuova attivita",
+      "short_name": "Task",
+      "url": "./index.html?action=task",
+      "description": "Aggiungi rapidamente una cosa da fare"
+    },
+    {
+      "name": "Agenda di oggi",
+      "short_name": "Oggi",
+      "url": "./index.html?view=day",
+      "description": "Apri il riepilogo della giornata"
+    }
+  ]
+}
