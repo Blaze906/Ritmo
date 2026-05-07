@@ -1,0 +1,13 @@
+{
+  "appId": "com.blaze906.ritmo",
+  "appName": "Ritmo",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  }
+}
