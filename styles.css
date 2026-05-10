@@ -296,7 +296,9 @@ h3 {
 
 .chip.active,
 .segmented button.active,
-.nav-item.active {
+.nav-item.active,
+.week-day.active,
+.month-day.active {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -566,6 +568,11 @@ h3 {
   text-align: left;
 }
 
+.week-day.today,
+.month-day.today {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+}
+
 .week-day span,
 .week-day small {
   display: block;
@@ -627,6 +634,29 @@ h3 {
   color: var(--accent);
   font-size: 0.78rem;
   font-weight: 760;
+}
+
+.calendar-day-agenda {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.calendar-day-agenda h3 {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.calendar-day-list {
+  display: grid;
+  gap: 8px;
+}
+
+.calendar-day-list .empty-state {
+  min-height: 180px;
+  padding: 20px;
 }
 
 .agenda-list,
@@ -1124,6 +1154,10 @@ h3 {
     flex-direction: column;
   }
 
+  .calendar-title .segmented {
+    width: 100%;
+  }
+
   .date-stepper {
     width: 100%;
   }
@@ -1150,13 +1184,53 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .week-grid {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .week-day {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    min-height: auto;
+    gap: 8px 10px;
+    padding: 11px 12px;
+  }
+
+  .week-day strong {
+    margin: 0;
+    font-size: 1.22rem;
+  }
+
+  .week-day small {
+    text-align: right;
+  }
+
+  .week-day > div {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 5px;
+  }
+
   .month-grid {
     gap: 4px;
   }
 
   .month-day {
-    min-height: 54px;
-    padding: 6px;
+    min-height: 44px;
+    padding: 5px;
+    place-items: center;
+    text-align: center;
+  }
+
+  .month-day strong {
+    font-size: 0.92rem;
+  }
+
+  .month-day span {
+    min-height: 0.8rem;
+    font-size: 0.68rem;
   }
 
   .stats-grid,

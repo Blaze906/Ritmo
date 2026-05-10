@@ -1,5 +1,7 @@
 const STORAGE_KEY = "ritmo-state-v1";
 const REMINDER_KEY = "ritmo-reminders-fired-v1";
+const NATIVE_REMINDER_IDS_KEY = "ritmo-native-reminder-ids-v1";
+const NOTIFICATION_CHANNEL_ID = "ritmo-reminders";
 
 const icon = {
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
@@ -105,6 +107,7 @@ const defaultState = () => ({
   search: "",
   filter: "all",
   focusItemId: null,
+  lastOpenedDate: toDateKey(new Date()),
   categories: [
     { id: "lavoro", name: "Lavoro", color: palette.lavoro },
     { id: "studio", name: "Studio", color: palette.studio },
@@ -121,13 +124,27 @@ let modal = null;
 let planner = [];
 let toastTimer = null;
 
+saveState();
+
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return saved ? { ...defaultState(), ...saved } : defaultState();
+    return saved ? normalizeStateForToday({ ...defaultState(), ...saved }, saved) : defaultState();
   } catch {
     return defaultState();
   }
+}
+
+function normalizeStateForToday(nextState, saved = {}) {
+  const today = toDateKey(new Date());
+  const selectedDate = nextState.selectedDate || today;
+  const lastOpenedDate = saved.lastOpenedDate;
+  const shouldFollowToday = selectedDate < today || (lastOpenedDate && lastOpenedDate !== today && selectedDate === lastOpenedDate);
+  return {
+    ...nextState,
+    selectedDate: shouldFollowToday ? today : selectedDate,
+    lastOpenedDate: today
+  };
 }
 
 function saveState() {
@@ -401,8 +418,9 @@ function renderHourSlot(hour, items) {
 }
 
 function renderCalendar() {
+  const selectedItems = getFilteredItems().filter((item) => item.date === state.selectedDate);
   return `
-    <div class="panel-title">
+    <div class="panel-title calendar-title">
       <div>
         <p class="eyebrow">Calendario</p>
         <h2>${state.calendarMode === "month" ? dateLabel(state.selectedDate, { month: "long", year: "numeric" }) : "Vista " + state.calendarMode}</h2>
@@ -412,6 +430,19 @@ function renderCalendar() {
       </div>
     </div>
     ${state.calendarMode === "day" ? renderDay() : state.calendarMode === "week" ? renderWeek() : renderMonth()}
+    ${
+      state.calendarMode === "day"
+        ? ""
+        : `<section class="calendar-day-agenda">
+            <div>
+              <p class="eyebrow">Selezionato</p>
+              <h3>${dateLabel(state.selectedDate, { weekday: "long", day: "numeric", month: "long" })}</h3>
+            </div>
+            <div class="calendar-day-list">
+              ${selectedItems.length ? selectedItems.map(renderItem).join("") : renderEmpty("Nessun elemento", "Tocca un giorno o aggiungi un promemoria per popolare questa data.")}
+            </div>
+          </section>`
+    }
   `;
 }
 
@@ -424,13 +455,14 @@ function renderWeek() {
   const startOffset = (base.getDay() + 6) % 7;
   const monday = addDays(state.selectedDate, -startOffset);
   const days = Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+  const today = toDateKey(new Date());
   return `
     <div class="week-grid">
       ${days
         .map((day) => {
           const items = getFilteredItems().filter((item) => item.date === day);
           return `
-            <button class="week-day ${day === state.selectedDate ? "active" : ""}" data-select-date="${day}" data-drop-date="${day}">
+            <button class="week-day ${day === state.selectedDate ? "active" : ""} ${day === today ? "today" : ""}" data-select-date="${day}" data-drop-date="${day}">
               <span>${dateLabel(day, { weekday: "short" })}</span>
               <strong>${dateLabel(day, { day: "numeric" })}</strong>
               <small>${items.length} elementi</small>
@@ -449,6 +481,7 @@ function renderMonth() {
   const startOffset = (first.getDay() + 6) % 7;
   const gridStart = toDateKey(new Date(first.getFullYear(), first.getMonth(), 1 - startOffset, 12));
   const days = Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+  const today = toDateKey(new Date());
   return `
     <div class="month-grid">
       ${["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((day) => `<span class="month-label">${day}</span>`).join("")}
@@ -457,7 +490,7 @@ function renderMonth() {
           const currentMonth = new Date(`${day}T12:00:00`).getMonth() === date.getMonth();
           const items = getFilteredItems().filter((item) => item.date === day);
           return `
-            <button class="month-day ${currentMonth ? "" : "muted"} ${day === state.selectedDate ? "active" : ""}" data-select-date="${day}" data-drop-date="${day}">
+            <button class="month-day ${currentMonth ? "" : "muted"} ${day === state.selectedDate ? "active" : ""} ${day === today ? "today" : ""}" data-select-date="${day}" data-drop-date="${day}">
               <strong>${dateLabel(day, { day: "numeric" })}</strong>
               <span>${items.length ? items.length : ""}</span>
             </button>
@@ -819,6 +852,7 @@ function attachEvents() {
       item.date = date || item.date;
       if (time) item.time = time;
       saveState();
+      syncNativeReminders();
       render();
       showToast("Elemento spostato");
     });
@@ -919,6 +953,7 @@ function handleDetailSubmit(event) {
   modal = null;
   planner = [];
   saveState();
+  syncNativeReminders();
   render();
   showToast("Salvato");
 }
@@ -945,6 +980,7 @@ function handleCategorySubmit(event) {
 function deleteItem(id) {
   state.items = state.items.filter((item) => item.id !== id);
   modal = null;
+  syncNativeReminders();
   showToast("Elemento eliminato");
 }
 
@@ -953,6 +989,7 @@ function completeItem(id) {
   if (!item) return;
   item.status = item.status === "done" ? "todo" : "done";
   if (item.status === "done" && item.recurrence !== "none") createNextOccurrence(item);
+  syncNativeReminders();
   showToast(item.status === "done" ? "Completato" : "Riaperto");
 }
 
@@ -1021,14 +1058,41 @@ function applyPlan(element) {
   item.endTime = fromMinutes((minutes(item.time) || 540) + (item.priority === "alta" ? 60 : 45));
   planner = planner.filter((slot) => slot.item.id !== item.id);
   saveState();
+  syncNativeReminders();
   render();
   showToast("Task pianificato");
 }
 
 async function requestNotifications() {
-  if (!("Notification" in window)) return showToast("Notifiche non supportate da questo browser");
-  const permission = await Notification.requestPermission();
-  showToast(permission === "granted" ? "Notifiche attive mentre l'app e aperta" : "Notifiche non abilitate");
+  const nativeNotifications = getNativeNotifications();
+  if (nativeNotifications) {
+    try {
+      const current = await nativeNotifications.checkPermissions();
+      const permission = current.display === "granted" ? current : await nativeNotifications.requestPermissions();
+      if (permission.display === "granted") {
+        await syncNativeReminders();
+        showToast("Notifiche attive anche a app chiusa");
+      } else {
+        showToast("Autorizzazione notifiche non concessa");
+      }
+      return;
+    } catch {
+      showToast("Non riesco ad attivare le notifiche di sistema");
+      return;
+    }
+  }
+
+  if ("Notification" in window) {
+    try {
+      const permission = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+      showToast(permission === "granted" ? "Notifiche attive mentre l'app e aperta" : "Autorizzazione notifiche non concessa");
+    } catch {
+      showToast("Il browser ha bloccato la richiesta notifiche");
+    }
+    return;
+  }
+
+  showToast("Notifiche disponibili installando l'app o aggiornando il browser");
 }
 
 function checkReminders() {
@@ -1042,12 +1106,103 @@ function checkReminders() {
       const fireAt = start - before * 60 * 1000;
       const key = `${item.id}-${before}-${item.date}-${item.time}`;
       if (!fired[key] && now >= fireAt && now - fireAt < 60 * 1000) {
-        new Notification(item.title, { body: `${before} minuti all'inizio${item.location ? " - " + item.location : ""}`, icon: "assets/icon.svg" });
+        showWebReminder(item, before);
         fired[key] = true;
       }
     });
   });
   localStorage.setItem(REMINDER_KEY, JSON.stringify(fired));
+}
+
+function getNativeNotifications() {
+  return window.Capacitor?.Plugins?.LocalNotifications || null;
+}
+
+async function syncNativeReminders() {
+  const nativeNotifications = getNativeNotifications();
+  if (!nativeNotifications) return false;
+  try {
+    const permission = await nativeNotifications.checkPermissions();
+    if (permission.display !== "granted") return false;
+    await ensureNotificationChannel(nativeNotifications);
+    const pending = await nativeNotifications.getPending();
+    const ritmoPending = (pending.notifications || []).filter((notification) => notification.extra?.source === "ritmo");
+    const storedIds = getStoredNativeReminderIds();
+    const cancelIds = [...new Set([...storedIds, ...ritmoPending.map((notification) => notification.id)])];
+    if (cancelIds.length) await nativeNotifications.cancel({ notifications: cancelIds.map((id) => ({ id })) });
+    const notifications = buildNativeReminderNotifications();
+    if (notifications.length) await nativeNotifications.schedule({ notifications });
+    localStorage.setItem(NATIVE_REMINDER_IDS_KEY, JSON.stringify(notifications.map((notification) => notification.id)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getStoredNativeReminderIds() {
+  try {
+    return JSON.parse(localStorage.getItem(NATIVE_REMINDER_IDS_KEY) || "[]").filter(Number.isFinite);
+  } catch {
+    return [];
+  }
+}
+
+async function ensureNotificationChannel(nativeNotifications) {
+  if (!nativeNotifications.createChannel) return;
+  await nativeNotifications.createChannel({
+    id: NOTIFICATION_CHANNEL_ID,
+    name: "Promemoria Ritmo",
+    description: "Avvisi per eventi e task pianificati",
+    importance: 5,
+    visibility: 1
+  });
+}
+
+function buildNativeReminderNotifications() {
+  const now = Date.now();
+  const horizon = now + 90 * 24 * 60 * 60 * 1000;
+  return state.items.flatMap((item) => {
+    if (!item.time || item.status === "done") return [];
+    const start = new Date(`${item.date}T${item.time}:00`).getTime();
+    return (item.reminders || [])
+      .map((before) => {
+        const fireAt = start - before * 60 * 1000;
+        if (fireAt <= now || fireAt > horizon) return null;
+        return {
+          id: notificationId(`${item.id}-${before}-${item.date}-${item.time}`),
+          title: item.title,
+          body: `${before} minuti all'inizio${item.location ? " - " + item.location : ""}`,
+          schedule: { at: new Date(fireAt), allowWhileIdle: true },
+          channelId: NOTIFICATION_CHANNEL_ID,
+          extra: { source: "ritmo", itemId: item.id }
+        };
+      })
+      .filter(Boolean);
+  });
+}
+
+function notificationId(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return (hash % 2147483000) + 1;
+}
+
+async function showWebReminder(item, before) {
+  const body = `${before} minuti all'inizio${item.location ? " - " + item.location : ""}`;
+  try {
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      if (registration?.showNotification) {
+        await registration.showNotification(item.title, { body, icon: "assets/icon.svg", badge: "assets/maskable-icon.svg" });
+        return;
+      }
+    }
+    new Notification(item.title, { body, icon: "assets/icon.svg" });
+  } catch {
+    showToast(`${before} minuti all'inizio: ${item.title}`);
+  }
 }
 
 function exportBackup() {

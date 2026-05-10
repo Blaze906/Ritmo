@@ -6,6 +6,11 @@
   "server": {
     "androidScheme": "https"
   },
+  "plugins": {
+    "LocalNotifications": {
+      "iconColor": "#315F52"
+    }
+  },
   "android": {
     "allowMixedContent": false,
     "webContentsDebuggingEnabled": false
