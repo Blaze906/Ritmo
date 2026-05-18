@@ -1,4 +1,4 @@
-const CACHE_NAME = "ritmo-offline-v2";
+const CACHE_NAME = "ritmo-offline-v3";
 const ASSETS = [
   "./",
   "./index.html",

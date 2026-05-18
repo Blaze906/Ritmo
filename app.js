@@ -2,6 +2,7 @@ const STORAGE_KEY = "ritmo-state-v1";
 const REMINDER_KEY = "ritmo-reminders-fired-v1";
 const NATIVE_REMINDER_IDS_KEY = "ritmo-native-reminder-ids-v1";
 const NOTIFICATION_CHANNEL_ID = "ritmo-reminders";
+const COMPLETED_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 const icon = {
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
@@ -137,11 +138,13 @@ function loadState() {
 
 function normalizeStateForToday(nextState, saved = {}) {
   const today = toDateKey(new Date());
+  const now = Date.now();
   const selectedDate = nextState.selectedDate || today;
   const lastOpenedDate = saved.lastOpenedDate;
   const shouldFollowToday = selectedDate < today || (lastOpenedDate && lastOpenedDate !== today && selectedDate === lastOpenedDate);
   return {
     ...nextState,
+    items: (nextState.items || []).map((item) => normalizeItemLifecycle(item, now)).filter((item) => !shouldAutoDelete(item, now)),
     selectedDate: shouldFollowToday ? today : selectedDate,
     lastOpenedDate: today
   };
@@ -149,6 +152,24 @@ function normalizeStateForToday(nextState, saved = {}) {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function normalizeItemLifecycle(item, now = Date.now()) {
+  if (item.status === "done") {
+    return { ...item, completedAt: Number.isFinite(item.completedAt) ? item.completedAt : now };
+  }
+  return { ...item, completedAt: null };
+}
+
+function shouldAutoDelete(item, now = Date.now()) {
+  return item.type === "task" && item.status === "done" && Number.isFinite(item.completedAt) && now - item.completedAt >= COMPLETED_RETENTION_MS;
+}
+
+function pruneExpiredCompletedTasks() {
+  const now = Date.now();
+  const before = state.items.length;
+  state.items = state.items.map((item) => normalizeItemLifecycle(item, now)).filter((item) => !shouldAutoDelete(item, now));
+  return before - state.items.length;
 }
 
 function uid() {
@@ -946,12 +967,16 @@ function handleDetailSubmit(event) {
       .split(",")
       .map((entry) => Number(entry.trim()))
       .filter((entry) => Number.isFinite(entry) && entry >= 0),
-    createdAt: existing?.createdAt || Date.now()
+    createdAt: existing?.createdAt || Date.now(),
+    completedAt: form.get("status") === "done" ? existing?.completedAt || Date.now() : null
   };
+  const transitionedToDone = existing?.status !== "done" && item.status === "done";
   if (existing) state.items = state.items.map((entry) => (entry.id === id ? item : entry));
   else state.items.push(item);
+  if (transitionedToDone && item.recurrence !== "none") createNextOccurrence(item);
   modal = null;
   planner = [];
+  pruneExpiredCompletedTasks();
   saveState();
   syncNativeReminders();
   render();
@@ -988,7 +1013,9 @@ function completeItem(id) {
   const item = state.items.find((entry) => entry.id === id);
   if (!item) return;
   item.status = item.status === "done" ? "todo" : "done";
+  item.completedAt = item.status === "done" ? Date.now() : null;
   if (item.status === "done" && item.recurrence !== "none") createNextOccurrence(item);
+  pruneExpiredCompletedTasks();
   syncNativeReminders();
   showToast(item.status === "done" ? "Completato" : "Riaperto");
 }
@@ -998,7 +1025,17 @@ function toggleChecklist(itemId, checkId) {
   const check = item?.checklist?.find((entry) => entry.id === checkId);
   if (!check) return;
   check.done = !check.done;
-  if (item.checklist.every((entry) => entry.done)) item.status = "done";
+  const wasDone = item.status === "done";
+  if (item.checklist.every((entry) => entry.done)) {
+    item.status = "done";
+    item.completedAt = item.completedAt || Date.now();
+    if (!wasDone && item.recurrence !== "none") createNextOccurrence(item);
+  } else {
+    item.status = "todo";
+    item.completedAt = null;
+  }
+  pruneExpiredCompletedTasks();
+  syncNativeReminders();
   showToast(check.done ? "Step completato" : "Step riaperto");
 }
 
@@ -1023,7 +1060,7 @@ function createNextOccurrence(item) {
     d.setMonth(d.getMonth() + 1);
     nextDate = toDateKey(d);
   }
-  state.items.push({ ...item, id: uid(), date: nextDate, status: "todo", checklist: item.checklist.map((entry) => ({ ...entry, id: uid(), done: false })) });
+  state.items.push({ ...item, id: uid(), date: nextDate, status: "todo", completedAt: null, checklist: item.checklist.map((entry) => ({ ...entry, id: uid(), done: false })) });
 }
 
 function buildPlan() {
@@ -1070,8 +1107,8 @@ async function requestNotifications() {
       const current = await nativeNotifications.checkPermissions();
       const permission = current.display === "granted" ? current : await nativeNotifications.requestPermissions();
       if (permission.display === "granted") {
-        await syncNativeReminders();
-        showToast("Notifiche attive anche a app chiusa");
+        const synced = await syncNativeReminders();
+        showToast(synced ? "Notifiche attive anche a app chiusa" : "Notifiche attive, nessun promemoria futuro da pianificare");
       } else {
         showToast("Autorizzazione notifiche non concessa");
       }
@@ -1085,6 +1122,7 @@ async function requestNotifications() {
   if ("Notification" in window) {
     try {
       const permission = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+      if (permission === "granted") checkReminders();
       showToast(permission === "granted" ? "Notifiche attive mentre l'app e aperta" : "Autorizzazione notifiche non concessa");
     } catch {
       showToast("Il browser ha bloccato la richiesta notifiche");
@@ -1239,5 +1277,15 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
 }
 
+pruneExpiredCompletedTasks();
+saveState();
+syncNativeReminders();
 setInterval(checkReminders, 30000);
+setInterval(() => {
+  const deleted = pruneExpiredCompletedTasks();
+  if (!deleted) return;
+  saveState();
+  syncNativeReminders();
+  render();
+}, 60000);
 render();
